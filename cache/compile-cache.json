@@ -25,5 +25,19 @@
     "wasm": false,
     "artifactsDirectory": "C:\\Users\\asael\\she-fund-microfinance\\artifacts",
     "emitsTypeDeclarations": false
+  },
+  "C:\\Users\\asael\\she-fund-microfinance\\contracts\\Reputation.sol": {
+    "jobHash": "solc-0_8_34-51b011577c5d0a49d4af881465dd7f823cb2a84b",
+    "isolated": false,
+    "compilerType": "solc",
+    "artifactPaths": [
+      "C:\\Users\\asael\\she-fund-microfinance\\artifacts\\contracts\\Reputation.sol\\Reputation.json"
+    ],
+    "buildInfoPath": "C:\\Users\\asael\\she-fund-microfinance\\artifacts\\build-info\\solc-0_8_34-51b011577c5d0a49d4af881465dd7f823cb2a84b.json",
+    "buildInfoOutputPath": "C:\\Users\\asael\\she-fund-microfinance\\artifacts\\build-info\\solc-0_8_34-51b011577c5d0a49d4af881465dd7f823cb2a84b.output.json",
+    "typeFilePath": "C:\\Users\\asael\\she-fund-microfinance\\artifacts\\contracts\\Reputation.sol\\artifacts.d.ts",
+    "wasm": false,
+    "artifactsDirectory": "C:\\Users\\asael\\she-fund-microfinance\\artifacts",
+    "emitsTypeDeclarations": true
   }
 }

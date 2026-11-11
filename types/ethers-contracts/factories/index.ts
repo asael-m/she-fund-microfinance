@@ -2,3 +2,4 @@
 /* tslint:disable */
 /* eslint-disable */
 export { Counter__factory } from './Counter__factory.js';
+export { Reputation__factory } from './Reputation__factory.js';

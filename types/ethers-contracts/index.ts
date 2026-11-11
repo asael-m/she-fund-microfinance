@@ -2,5 +2,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export type { Counter } from './Counter.js';
+export type { Reputation } from './Reputation.js';
 export * as factories from './factories/index.js';
 export { Counter__factory } from './factories/Counter__factory.js';
+export { Reputation__factory } from './factories/Reputation__factory.js';
