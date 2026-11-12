@@ -30,12 +30,19 @@ contract LoanPool {
         uint256 repaid;
         uint256 startTime;
         Status status;
+        uint256 requestedAt;
+        uint256 fundedAt;
+        uint256 lateInstallments;
     }
 
-    uint256 public constant INTEREST_BPS = 500;       // 5% flat
-    uint256 public constant STAKE_BPS = 1000;         // 10% of principal per guarantor
+    uint256 public constant INTEREST_BPS = 500;        // 5% flat
+    uint256 public constant STAKE_BPS = 1000;          // 10% of principal per guarantor
     uint256 public constant MIN_REPUTATION = 300;
-    uint256 public constant GRACE_PERIOD = 7 days;
+    uint256 public constant MIN_PRINCIPAL = 1e12;      // keeps stakes and installments above zero
+    uint256 public constant MAX_INSTALLMENTS = 120;
+    uint256 public constant GRACE_PERIOD = 7 days;     // after the final deadline, before default
+    uint256 public constant FUNDING_WINDOW = 30 days;  // to gather guarantors and funding
+    uint256 public constant WITHDRAW_WINDOW = 7 days;  // for the borrower to collect a funded loan
 
     IGroup public immutable groupContract;
     IReputation public immutable reputation;
@@ -57,6 +64,7 @@ contract LoanPool {
     event LoanRepaid(uint256 indexed loanId);
     event LoanDefaulted(uint256 indexed loanId);
     event LoanCancelled(uint256 indexed loanId);
+    event LoanExpired(uint256 indexed loanId);
     event Withdrawn(address indexed account, uint256 amount);
 
     error NotGroupMember();
@@ -73,6 +81,8 @@ contract LoanPool {
     error ZeroAmount();
     error ExceedsRemaining();
     error NotYetDefaultable();
+    error NotExpired();
+    error WindowClosed();
     error NothingToWithdraw();
     error TransferFailed();
 
@@ -97,7 +107,13 @@ contract LoanPool {
     ) external returns (uint256 loanId) {
         if (!groupContract.isMember(groupId, msg.sender)) revert NotGroupMember();
         if (reputation.getScore(msg.sender) < MIN_REPUTATION) revert ReputationTooLow();
-        if (principal == 0 || installments == 0 || intervalSeconds == 0 || guarantorsNeeded == 0) {
+        if (
+            principal < MIN_PRINCIPAL ||
+            installments == 0 ||
+            installments > MAX_INSTALLMENTS ||
+            intervalSeconds == 0 ||
+            guarantorsNeeded == 0
+        ) {
             revert InvalidParameters();
         }
 
@@ -112,6 +128,7 @@ contract LoanPool {
         l.guarantorsNeeded = guarantorsNeeded;
         l.guarantorStake = (principal * STAKE_BPS) / 10000;
         l.status = Status.Requested;
+        l.requestedAt = block.timestamp;
 
         emit LoanRequested(loanId, msg.sender, groupId, principal);
     }
@@ -122,16 +139,25 @@ contract LoanPool {
         if (msg.sender != l.borrower) revert NotBorrower();
         if (l.status != Status.Requested) revert WrongStatus();
         l.status = Status.Cancelled;
-
-        address[] storage gs = guarantors[loanId];
-        for (uint256 i = 0; i < gs.length; i++) {
-            withdrawable[gs[i]] += l.guarantorStake;
-        }
-        address[] storage ls = lenders[loanId];
-        for (uint256 i = 0; i < ls.length; i++) {
-            withdrawable[ls[i]] += contributions[loanId][ls[i]];
-        }
+        _refundAll(loanId, l.guarantorStake);
         emit LoanCancelled(loanId);
+    }
+
+    /// @notice Anyone can close a stalled loan: not fully funded within the funding window,
+    /// or funded but not collected by the borrower within the withdrawal window.
+    /// Everyone gets their stake or funds back.
+    function expireLoan(uint256 loanId) external loanExists(loanId) {
+        Loan storage l = loans[loanId];
+        if (l.status == Status.Requested) {
+            if (block.timestamp <= l.requestedAt + FUNDING_WINDOW) revert NotExpired();
+        } else if (l.status == Status.Funded) {
+            if (block.timestamp <= l.fundedAt + WITHDRAW_WINDOW) revert NotExpired();
+        } else {
+            revert WrongStatus();
+        }
+        l.status = Status.Cancelled;
+        _refundAll(loanId, l.guarantorStake);
+        emit LoanExpired(loanId);
     }
 
     // -------------------------------------------------------------- guarantee
@@ -139,6 +165,7 @@ contract LoanPool {
     function guarantee(uint256 loanId) external payable loanExists(loanId) {
         Loan storage l = loans[loanId];
         if (l.status != Status.Requested) revert WrongStatus();
+        if (block.timestamp > l.requestedAt + FUNDING_WINDOW) revert WindowClosed();
         if (msg.sender == l.borrower) revert BorrowerCannotGuarantee();
         if (!groupContract.isMember(l.groupId, msg.sender)) revert NotGroupMember();
         if (isGuarantor[loanId][msg.sender]) revert AlreadyGuarantor();
@@ -155,6 +182,7 @@ contract LoanPool {
     function fund(uint256 loanId) external payable loanExists(loanId) {
         Loan storage l = loans[loanId];
         if (l.status != Status.Requested) revert WrongStatus();
+        if (block.timestamp > l.requestedAt + FUNDING_WINDOW) revert WindowClosed();
         if (guarantors[loanId].length < l.guarantorsNeeded) revert NeedsMoreGuarantors();
         if (msg.value == 0) revert ZeroAmount();
         if (l.funded + msg.value > l.principal) revert ExceedsRemaining();
@@ -166,6 +194,7 @@ contract LoanPool {
 
         if (l.funded == l.principal) {
             l.status = Status.Funded;
+            l.fundedAt = block.timestamp;
             emit LoanFullyFunded(loanId);
         }
     }
@@ -175,6 +204,7 @@ contract LoanPool {
         Loan storage l = loans[loanId];
         if (msg.sender != l.borrower) revert NotBorrower();
         if (l.status != Status.Funded) revert WrongStatus();
+        if (block.timestamp > l.fundedAt + WITHDRAW_WINDOW) revert WindowClosed();
         l.status = Status.Active;
         l.startTime = block.timestamp;
         (bool ok, ) = payable(msg.sender).call{value: l.principal}("");
@@ -185,6 +215,8 @@ contract LoanPool {
     // -------------------------------------------------------------- repayment
 
     /// @notice Pay one or more installments. Send any amount up to what is still owed.
+    /// Each installment is due at startTime + n * interval. If any installment is paid
+    /// after its due date, the finished loan counts as late in the borrower's reputation.
     function repay(uint256 loanId) external payable loanExists(loanId) {
         Loan storage l = loans[loanId];
         if (l.status != Status.Active) revert WrongStatus();
@@ -192,38 +224,28 @@ contract LoanPool {
         if (l.repaid + msg.value > l.totalDue) revert ExceedsRemaining();
 
         l.repaid += msg.value;
+        _creditLenders(loanId, msg.value, l.principal);
 
-        // Credit lenders pro rata
-        address[] storage ls = lenders[loanId];
-        uint256 distributed = 0;
-        for (uint256 i = 0; i < ls.length; i++) {
-            uint256 share = (msg.value * contributions[loanId][ls[i]]) / l.principal;
-            withdrawable[ls[i]] += share;
-            distributed += share;
-        }
-        // Rounding dust goes to the first lender
-        if (distributed < msg.value && ls.length > 0) {
-            withdrawable[ls[0]] += msg.value - distributed;
-        }
-
-        // How many installments does the total repaid cover?
         uint256 perInstallment = l.totalDue / l.installments;
         uint256 covered = l.repaid >= l.totalDue ? l.installments : l.repaid / perInstallment;
-        l.installmentsPaid = covered;
 
-        // On time if repaid enough by the end of the most recent due period
-        bool onTime = block.timestamp <= l.startTime + (_installmentsDue(l) * l.intervalSeconds);
-        if (_installmentsDue(l) <= covered) onTime = true;
+        bool onTime = true;
+        for (uint256 k = l.installmentsPaid + 1; k <= covered; k++) {
+            if (block.timestamp > l.startTime + (k * l.intervalSeconds)) {
+                l.lateInstallments++;
+                onTime = false;
+            }
+        }
+        l.installmentsPaid = covered;
         emit RepaymentMade(loanId, msg.value, covered, onTime);
 
         if (l.repaid == l.totalDue) {
             l.status = Status.Repaid;
-            // Refund guarantor stakes
             address[] storage gs = guarantors[loanId];
             for (uint256 i = 0; i < gs.length; i++) {
                 withdrawable[gs[i]] += l.guarantorStake;
             }
-            reputation.recordRepayment(l.borrower, _wasOnTimeOverall(l));
+            reputation.recordRepayment(l.borrower, l.lateInstallments == 0);
             emit LoanRepaid(loanId);
         }
     }
@@ -240,18 +262,8 @@ contract LoanPool {
         l.status = Status.Defaulted;
 
         // Slash guarantor stakes and pay them to lenders pro rata
-        address[] storage gs = guarantors[loanId];
-        uint256 slashed = gs.length * l.guarantorStake;
-        address[] storage ls = lenders[loanId];
-        uint256 distributed = 0;
-        for (uint256 i = 0; i < ls.length; i++) {
-            uint256 share = (slashed * contributions[loanId][ls[i]]) / l.principal;
-            withdrawable[ls[i]] += share;
-            distributed += share;
-        }
-        if (distributed < slashed && ls.length > 0) {
-            withdrawable[ls[0]] += slashed - distributed;
-        }
+        uint256 slashed = guarantors[loanId].length * l.guarantorStake;
+        _creditLenders(loanId, slashed, l.principal);
 
         reputation.recordDefault(l.borrower);
         emit LoanDefaulted(loanId);
@@ -285,17 +297,31 @@ contract LoanPool {
 
     // --------------------------------------------------------------- internals
 
-    /// @dev How many installments should be paid by now (capped at the total).
-    function _installmentsDue(Loan storage l) private view returns (uint256) {
-        if (l.startTime == 0) return 0;
-        uint256 elapsed = block.timestamp - l.startTime;
-        uint256 due = (elapsed + l.intervalSeconds - 1) / l.intervalSeconds; // round up
-        if (due == 0) due = 1;
-        return due > l.installments ? l.installments : due;
+    /// @dev Return every guarantor stake and every lender contribution.
+    function _refundAll(uint256 loanId, uint256 stake) private {
+        address[] storage gs = guarantors[loanId];
+        for (uint256 i = 0; i < gs.length; i++) {
+            withdrawable[gs[i]] += stake;
+        }
+        address[] storage ls = lenders[loanId];
+        for (uint256 i = 0; i < ls.length; i++) {
+            withdrawable[ls[i]] += contributions[loanId][ls[i]];
+        }
     }
 
-    /// @dev Final repayment counts as on time if it lands before the last deadline.
-    function _wasOnTimeOverall(Loan storage l) private view returns (bool) {
-        return block.timestamp <= l.startTime + (l.installments * l.intervalSeconds);
+    /// @dev Share an amount among lenders in proportion to what each contributed.
+    function _creditLenders(uint256 loanId, uint256 amount, uint256 principal) private {
+        address[] storage ls = lenders[loanId];
+        if (ls.length == 0) return;
+        uint256 distributed = 0;
+        for (uint256 i = 0; i < ls.length; i++) {
+            uint256 share = (amount * contributions[loanId][ls[i]]) / principal;
+            withdrawable[ls[i]] += share;
+            distributed += share;
+        }
+        // Rounding dust goes to the first lender
+        if (distributed < amount) {
+            withdrawable[ls[0]] += amount - distributed;
+        }
     }
 }

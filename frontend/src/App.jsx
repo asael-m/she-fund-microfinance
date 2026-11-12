@@ -3,7 +3,7 @@ import { JsonRpcProvider, Contract, parseEther, formatEther } from "ethers";
 import deployed from "./contracts.json";
 
 const provider = new JsonRpcProvider("http://127.0.0.1:8545");
-const ROLES = ["Admin", "Borrower", "Guarantor 1", "Guarantor 2", "Lender"];
+const ROLES = ["Group admin", "Borrower", "Guarantor 1", "Guarantor 2", "Lender"];
 const STATUS = ["Requested", "Funded", "Active", "Repaid", "Defaulted", "Cancelled"];
 
 const css = `
@@ -19,6 +19,8 @@ button:hover{background:#095f47}
 .stat{display:inline-block;margin-right:22px} .stat b{display:block;font-size:20px}
 .log{font-family:monospace;font-size:13px;max-height:200px;overflow:auto}
 .err{color:#b3261e}
+.note{font-size:12px;color:#5b6775}
+summary{cursor:pointer;color:#5b6775;font-size:13px}
 `;
 
 export default function App() {
@@ -33,31 +35,6 @@ export default function App() {
   });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const addLog = (m) => setLog((l) => [m, ...l].slice(0, 30));
-  // Take a clean snapshot the first time this deployment is opened
-  useEffect(() => {
-    const key = "snap-" + deployed.deployedAt;
-    if (!localStorage.getItem(key)) {
-      provider.send("evm_snapshot", [])
-        .then((id) => localStorage.setItem(key, id))
-        .catch(() => {});
-    }
-  }, []);
-
-  const resetAll = async () => {
-    const key = "snap-" + deployed.deployedAt;
-    try {
-      const ok = await provider.send("evm_revert", [localStorage.getItem(key)]);
-      if (!ok) throw new Error("no snapshot");
-      const id = await provider.send("evm_snapshot", []); // new clean snapshot for next reset
-      localStorage.setItem(key, id);
-      setLog(["Reset done. Everything is back to a clean start."]);
-      setF((p) => ({ ...p, groupId: "1", loanId: "1" }));
-      setIdx(0);
-      refresh();
-    } catch {
-      addLog("FAILED: reset. Redeploy once (see below) and refresh the page.");
-    }
-  };
 
   const contract = (name, runner) =>
     new Contract(deployed[name].address, deployed[name].abi, runner);
@@ -84,7 +61,7 @@ export default function App() {
         withdrawable: await pool.withdrawable(me),
       });
     } catch {
-      setInfo({ error: "Cannot reach the local node. Is Window 1 (npx hardhat node) running?" });
+      setInfo({ error: "Cannot reach the blockchain node. Make sure it is running at http://127.0.0.1:8545." });
     }
   }, [idx, f.loanId, f.groupId]);
 
@@ -101,10 +78,10 @@ export default function App() {
     refresh();
   };
 
-  const skipTime = async () => {
+  const advanceTime = async () => {
     await provider.send("evm_increaseTime", [Number(f.skip) * 86400]);
     await provider.send("evm_mine", []);
-    addLog("Skipped " + f.skip + " days forward");
+    addLog("Advanced chain time by " + f.skip + " days");
     refresh();
   };
 
@@ -113,10 +90,10 @@ export default function App() {
     <div className="wrap">
       <style>{css}</style>
       <h1>SHE-Fund</h1>
-      <div className="sub">Blockchain microfinance for women entrepreneurs (local demo)</div>
+      <div className="sub">Community-guaranteed microloans for women entrepreneurs</div>
 
       <div className="card">
-        <label>Acting as</label>
+        <label>Account</label>
         <select value={idx} onChange={(e) => setIdx(Number(e.target.value))}>
           {ROLES.map((r, i) => (
             <option key={i} value={i}>Account #{i}: {r}</option>
@@ -132,8 +109,6 @@ export default function App() {
         <button onClick={() => run("Withdraw earnings and refunds", async () => (await signed("LoanPool")).withdraw())}>
           Withdraw my earnings / refunds
         </button>
-        {" "}
-        <button style={{ background: "#b3261e" }} onClick={resetAll}>Reset demo</button>
       </div>
 
       <div className="grid">
@@ -184,13 +159,12 @@ export default function App() {
         </div>
 
         <div className="card">
-          <h3>4. Default demo</h3>
-          <label>Skip forward (days)</label>
-          <input value={f.skip} onChange={set("skip")} />
-          <button onClick={skipTime}>Skip time</button>{" "}
-          <button onClick={() => run("Mark loan " + f.loanId + " as defaulted", async () => (await signed("LoanPool")).markDefault(f.loanId))}>Mark default</button>
-          <p style={{ fontSize: 12, color: "#5b6775" }}>
-            Skip past the loan deadline plus 7 days, then mark default to see stakes slashed and reputation drop.
+          <h3>4. Loan deadlines</h3>
+          <button onClick={() => run("Mark loan " + f.loanId + " as defaulted", async () => (await signed("LoanPool")).markDefault(f.loanId))}>Mark as defaulted</button>{" "}
+          <button onClick={() => run("Expire loan " + f.loanId, async () => (await signed("LoanPool")).expireLoan(f.loanId))}>Expire stalled loan</button>
+          <p className="note">
+            Anyone can mark a loan as defaulted 7 days after its final deadline: guarantor stakes then go to the lenders.
+            A loan not fully funded within 30 days, or not collected within 7 days of funding, can be expired and everyone is refunded.
           </p>
         </div>
       </div>
@@ -200,7 +174,7 @@ export default function App() {
         {L ? (
           <p>
             Status: <b>{STATUS[Number(L.status)]}</b> | Principal {formatEther(L.principal)} ETH | Total due {formatEther(L.totalDue)} ETH |
-            Funded {formatEther(L.funded)} | Repaid {formatEther(L.repaid)} | Borrower #{accounts.indexOf(L.borrower)}
+            Funded {formatEther(L.funded)} | Repaid {formatEther(L.repaid)} | Late installments {L.lateInstallments.toString()} | Borrower #{accounts.indexOf(L.borrower)}
           </p>
         ) : <p>No loan with this ID yet.</p>}
       </div>
@@ -209,6 +183,14 @@ export default function App() {
         <h3>Activity</h3>
         <div className="log">{log.length ? log.map((m, i) => <div key={i} className={m.startsWith("FAILED") ? "err" : ""}>{m}</div>) : "Nothing yet."}</div>
       </div>
+
+      <details className="card">
+        <summary>Developer tools (local network only)</summary>
+        <label>Advance chain time (days)</label>
+        <input value={f.skip} onChange={set("skip")} />
+        <button onClick={advanceTime}>Advance time</button>
+        <p className="note">Loans run for months, so on a local test network this moves the clock forward to reach deadlines.</p>
+      </details>
     </div>
   );
 }
