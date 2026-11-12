@@ -33,6 +33,31 @@ export default function App() {
   });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const addLog = (m) => setLog((l) => [m, ...l].slice(0, 30));
+  // Take a clean snapshot the first time this deployment is opened
+  useEffect(() => {
+    const key = "snap-" + deployed.deployedAt;
+    if (!localStorage.getItem(key)) {
+      provider.send("evm_snapshot", [])
+        .then((id) => localStorage.setItem(key, id))
+        .catch(() => {});
+    }
+  }, []);
+
+  const resetAll = async () => {
+    const key = "snap-" + deployed.deployedAt;
+    try {
+      const ok = await provider.send("evm_revert", [localStorage.getItem(key)]);
+      if (!ok) throw new Error("no snapshot");
+      const id = await provider.send("evm_snapshot", []); // new clean snapshot for next reset
+      localStorage.setItem(key, id);
+      setLog(["Reset done. Everything is back to a clean start."]);
+      setF((p) => ({ ...p, groupId: "1", loanId: "1" }));
+      setIdx(0);
+      refresh();
+    } catch {
+      addLog("FAILED: reset. Redeploy once (see below) and refresh the page.");
+    }
+  };
 
   const contract = (name, runner) =>
     new Contract(deployed[name].address, deployed[name].abi, runner);
@@ -107,6 +132,8 @@ export default function App() {
         <button onClick={() => run("Withdraw earnings and refunds", async () => (await signed("LoanPool")).withdraw())}>
           Withdraw my earnings / refunds
         </button>
+        {" "}
+        <button style={{ background: "#b3261e" }} onClick={resetAll}>Reset demo</button>
       </div>
 
       <div className="grid">

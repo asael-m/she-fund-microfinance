@@ -19,6 +19,7 @@ fs.writeFileSync(
   "frontend/src/contracts.json",
   JSON.stringify(
     {
+      deployedAt: Date.now(),
       Group: { address: await group.getAddress(), abi: abi("Group") },
       Reputation: { address: await rep.getAddress(), abi: abi("Reputation") },
       LoanPool: { address: await pool.getAddress(), abi: abi("LoanPool") },
