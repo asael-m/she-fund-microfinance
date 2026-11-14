@@ -1,0 +1,52 @@
+{
+  "model_version": "scorecard-v1",
+  "weights": {
+    "payment_reliability": 0.35,
+    "group_savings_consistency": 0.3,
+    "income_stability": 0.2,
+    "account_history": 0.15
+  },
+  "range": [
+    300,
+    700
+  ],
+  "note": "Simulated data and a team-chosen scorecard. Not validated on real borrowers.",
+  "borrowers": [
+    {
+      "label": "Account #1 (steady)",
+      "account_index": 1,
+      "score": 669,
+      "data_hash": "0xd35f95e1405754eef643039d9368a0b6fbdf62ba8ee3c21a795a536a6ba6f6b3",
+      "sub_scores": {
+        "payment_reliability": 0.893,
+        "group_savings_consistency": 0.929,
+        "income_stability": 0.97,
+        "account_history": 0.917
+      }
+    },
+    {
+      "label": "Account #2 (seasonal)",
+      "account_index": 2,
+      "score": 544,
+      "data_hash": "0x80b419b7fd708013c88a1c4aaf8f2b06e367dd8ecc325fa7a4ccb8dbe99e13f6",
+      "sub_scores": {
+        "payment_reliability": 0.636,
+        "group_savings_consistency": 0.679,
+        "income_stability": 0.477,
+        "account_history": 0.583
+      }
+    },
+    {
+      "label": "Account #3 (thin file)",
+      "account_index": 3,
+      "score": 523,
+      "data_hash": "0x18030587fc9c1fefaef8f65ac65861295542029c1972047989aa30e0d6cc7098",
+      "sub_scores": {
+        "payment_reliability": 0.5,
+        "group_savings_consistency": 0.75,
+        "income_stability": 0.659,
+        "account_history": 0.167
+      }
+    }
+  ]
+}

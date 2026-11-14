@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { JsonRpcProvider, Contract, parseEther, formatEther } from "ethers";
 import deployed from "./contracts.json";
+import AltDataPanel from "./AltDataPanel";
 
 const provider = new JsonRpcProvider("http://127.0.0.1:8545");
 const ROLES = ["Group admin", "Borrower", "Guarantor 1", "Guarantor 2", "Lender"];
@@ -35,6 +36,10 @@ export default function App() {
   });
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const addLog = (m) => setLog((l) => [m, ...l].slice(0, 30));
+  const reputationView = useMemo(
+    () => new Contract(deployed.Reputation.address, deployed.Reputation.abi, provider),
+    []
+  );
 
   const contract = (name, runner) =>
     new Contract(deployed[name].address, deployed[name].abi, runner);
@@ -110,6 +115,8 @@ export default function App() {
           Withdraw my earnings / refunds
         </button>
       </div>
+
+      <AltDataPanel reputation={reputationView} account={info.me} refreshKey={info.score?.toString()} />
 
       <div className="grid">
         <div className="card">
