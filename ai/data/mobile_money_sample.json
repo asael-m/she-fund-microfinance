@@ -1,0 +1,35 @@
+{
+  "_note": "SIMULATED data for demonstration only. No real people or real mobile-money records.",
+  "borrowers": [
+    {
+      "label": "Account #1 (steady)",
+      "account_index": 1,
+      "months_active": 11,
+      "monthly_inflows_kes": [12500, 13100, 12800, 12200, 13400, 12900],
+      "bills_due": 24,
+      "bills_paid_on_time": 23,
+      "chama_contributions_expected": 24,
+      "chama_contributions_made": 24
+    },
+    {
+      "label": "Account #2 (seasonal)",
+      "account_index": 2,
+      "months_active": 7,
+      "monthly_inflows_kes": [3000, 9500, 2500, 11000, 4000, 8000],
+      "bills_due": 18,
+      "bills_paid_on_time": 12,
+      "chama_contributions_expected": 24,
+      "chama_contributions_made": 17
+    },
+    {
+      "label": "Account #3 (thin file)",
+      "account_index": 3,
+      "months_active": 2,
+      "monthly_inflows_kes": [4000, 4200],
+      "bills_due": 0,
+      "bills_paid_on_time": 0,
+      "chama_contributions_expected": 4,
+      "chama_contributions_made": 4
+    }
+  ]
+}
