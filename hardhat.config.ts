@@ -34,5 +34,13 @@ export default defineConfig({
       url: configVariable("SEPOLIA_RPC_URL"),
       accounts: [configVariable("SEPOLIA_PRIVATE_KEY")],
     },
+    // Celo Sepolia testnet (chain ID 11142220). The key is read from Hardhat's
+    // encrypted keystore, never stored in this file.
+    celoSepolia: {
+      type: "http",
+      url: "https://forno.celo-sepolia.celo-testnet.org",
+      chainId: 11142220,
+      accounts: [configVariable("CELO_PRIVATE_KEY")],
+    },
   },
 });
